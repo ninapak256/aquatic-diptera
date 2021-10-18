@@ -1,0 +1,186 @@
+---
+title: "Analysis Aquatic Lineages"
+author: "Nina Pak"
+date: "8/30/2021"
+output: html_document
+---
+
+## R Markdown
+
+```{r}
+set.seed(1990)
+library(ape)
+library(phytools)
+library(geiger)
+library("RColorBrewer")
+library(wesanderson)
+#library(phylobase) - maybe for another project
+library(corHMM)
+#Set Working Directory and Upload file. Pick the correct tree file. 
+setwd("/Users/npak/Desktop/E")
+tree <- read.nexus("/Users/npak/Desktop/E/D06112019.nex")
+#rooting tree
+is.rooted(tree)
+#no, not yet
+outgroup <- c("Merope_tuber", "Panorpa_sp", "Nannochorista_sp", "Ctenocephalides_felis", "Micropteryx_calthella", "Microchorista_philpotti","Deuterophlebia_coloradensis")
+rooted_tree <- root(tree, outgroup, resolve.root = TRUE)
+is.rooted(rooted_tree)
+
+#tree with modified branches for analysis
+dst <- rooted_tree
+dst$edge.length[dst$edge.length==0]<-max(nodeHeights(rooted_tree))*1e-6
+
+#load annotated tips
+svl<-read.csv("/Users/npak/Desktop/AL folder/test_bloodfeeding.csv", header = TRUE, row.names = 1)
+#create a value to set for tip labels
+fmode.aquatic<-as.factor(setNames(svl[,1], rownames(svl)))
+fmode.blood <-as.factor(setNames(svl[,2], rownames(svl)))
+#svl (characterizes as factor like a data frame); 
+#Column 1 is coded for Found having an aquatic life history in its larval stage. 
+#Column 2 is coded for Found for Blood Feeding as an Adult. Keep track of fmode!
+```
+
+## ROOTED VERSION
+Using Pagel's method, we can compare independent and dependent models. This shows the rates of change between the states between Aquatic to Hematophagy. The boldness is proportional to the rate (Higher rate is more bolded).
+```{r}
+library(phytools)
+x_dst <- setNames(svl$Overall, rownames(svl))
+y_dst <- setNames(svl$Yuval, rownames(svl))
+
+fit_xy_dst <-fitPagel(dst, x_dst, y_dst)
+fit_xy_dst
+plot(fit_xy_dst, lwd.by.rate=TRUE)
+```
+
+```{r}
+
+fit_yx_dst <-fitPagel(dst, y_dst, x_dst)
+fit_yx_dst
+plot(fit_yx_dst, lwd.by.rate=TRUE)
+```
+
+```{r}
+fit.x_dst <- fitPagel(dst,x_dst,y_dst, dep.var = "x")
+fit.x_dst
+plot(fit.x_dst,lwd.by.rate=TRUE)
+```
+
+```{r}
+fit.y_dst<-fitPagel(dst,x_dst,y_dst,dep.var="y")
+fit.y_dst
+pdf(file ="dependenty-plot.pdf")
+plot(fit.y_dst,lwd.by.rate=TRUE)
+```
+
+ We can see this in our weighted AIC and AIC scores. 
+
+```{r}
+aic_dst<-setNames(c(fit_xy_dst$independent.AIC,
+    fit.x_dst$dependent.AIC,
+    fit.y_dst$dependent.AIC,
+    fit_xy_dst$dependent.AIC),
+    c("independent","dependent x",
+    "dependent y","dependent x&y"))
+aic_dst
+```
+
+Weighted AIC scores. 
+```{r}
+aic.w(aic_dst)
+
+plot(fit.y_dst,lwd.by.rate=TRUE)
+fit.y_dst
+fit_xy_dst
+```
+
+#Phylo.D
+
+We analyzed D using the ‘phylo.d’ function in the R package caper (Orme et al., 2018), and conducted a significance test by comparing observed D with distributions of simulated values produced under two scenarios: random shuffling of traits on the tree, or simulation of a binary trait under a Brownian motion model. 
+```{r}
+library(caper)
+
+AquaticFlies <- comparative.data(dst, svl_test, name)
+bloodPhyloD <- phylo.d(AquaticFlies, binvar = Yuval)
+aquaticPhyloD <- phylo.d(AquaticFlies, binvar = Overall)
+
+print(bloodPhyloD)
+plot(bloodPhyloD)
+
+bloodPhyloD$Pval1
+bloodPhyloD$Pval0
+
+print(aquaticPhyloD)
+plot(aquaticPhyloD)
+
+aquaticPhyloD$Pval1
+aquaticPhyloD$Pval0
+
+```
+
+#stochastic character mapping for aquatic life history
+```{r}
+set.seed(100)
+## simulate single stochastic character map using 'equal rates'
+mtree_a_er_one <- make.simmap(dst, fmode.aquatic, model = "ER", pi= "estimated", Q = "empirical")
+
+#'all rates different'
+mtree_a_ard_one <- make.simmap(dst, fmode.aquatic, model = "ARD", pi= "estimated", Q = "empirical")
+
+#branched tree, now for 100 simulations
+mtrees_a_er_100 <-make.simmap(dst, fmode.aquatic, model = "ER", nsim = 100, pi= "estimated", Q = "empirical")
+mtrees_a_ard_100 <-make.simmap(dst, fmode.aquatic, model = "ARD", nsim = 100, pi="estimated", Q = "empirical")
+
+#summarize those simulations
+pd_er_0_q<-summary(mtrees_a_er_100)
+pd_ard_0_q <-summary(mtrees_a_ard_100)
+
+###
+#plot this one tree - ER
+cols3<-setNames(c("#16A076","#D46127"),levels(fmode.aquatic))
+plot(mtree_a_er_one, ftype="off",colors = cols3, fsize=0.4)
+nodelabels(pie = pd_er_0_q$ace, piecol =cols3, cex=0.25)
+add.simmap.legend(colors=cols3,prompt=FALSE,x=0.5*par()$usr[1],
+    y=-25.8*par()$usr[3],fsize=0.8)
+
+cols3<-setNames(c("#16A076","#D46127"),levels(fmode.aquatic))
+plot(mtree_a_ard_one,ftype="off",colors = cols3, fsize=0.4)
+nodelabels(pie = pd_ard_0_q$ace, piecol =cols3, cex=0.25)
+add.simmap.legend(colors=cols3,prompt=FALSE,x=0.5*par()$usr[1],
+    y=-25.8*par()$usr[3],fsize=0.8)
+```
+
+#stochastic character mapping for blood-feeding 
+
+```{r}
+pdf(file="SCM-ER-ARD-FIGURE - h - woQ-1.pdf",width=10,height=10)
+fmode.blood <-as.factor(setNames(svl[,2], rownames(svl)))
+## simulate single stochastic character map using empirical Bayes method
+mtree_h_er_one <- make.simmap(dst, fmode.blood, model = "ER", pi= "estimated", Q = "empirical")
+## simulate single stochastic character map using empirical Bayes method
+mtree_h_ard_one <- make.simmap(dst, fmode.blood, model = "ARD", pi= "estimated", Q = "empirical")
+#branched tree, now for 100 simulations
+mtrees_h_er_100 <-make.simmap(dst, fmode.blood, model = "ER", nsim = 100, pi= "estimated", Q = "empirical")
+mtrees_h_ard_100 <-make.simmap(dst, fmode.blood, model = "ARD", nsim = 100, pi="estimated", Q = "empirical")
+
+#summarize those simulations
+pd_er_0_h<-summary(mtrees_h_er_100)
+#pd_er_0_h
+pd_ard_0_h <-summary(mtrees_h_ard_100)
+#pd_ard_0_h
+
+#plot results
+cols2<-setNames(c("black","red"),c("Other", "Aquatic"))
+plot(mtree_h_er_one,ftype="off")
+cols<-setNames(c("black","red"),c("Other", "Aquatic"))
+nodelabels(pie = pd_er_0_h$ace, piecol =cols2, cex=0.25)
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5*par()$usr[1],
+    y=-25.8*par()$usr[3],fsize=0.8)
+
+plot(mtree_h_ard_one,ftype="off")
+cols<-setNames(c("black","red"),c( "Other","Aquatic"))
+nodelabels(pie = pd_ard_0_h$ace, piecol =cols2, cex=0.25)
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5*par()$usr[1],
+    y=-25.8*par()$usr[3],fsize=0.8)
+
+```
+
